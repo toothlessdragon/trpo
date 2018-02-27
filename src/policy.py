@@ -5,6 +5,7 @@ Written by Patrick Coady (pat-coady.github.io)
 """
 import numpy as np
 import tensorflow as tf
+import os
 
 
 class Policy(object):
@@ -42,6 +43,7 @@ class Policy(object):
             self._sample()
             self._loss_train_op()
             self.init = tf.global_variables_initializer()
+            self.saver = tf.train.Saver(max_to_keep=5)
 
     def _placeholders(self):
         """ Input placeholders"""
@@ -209,3 +211,16 @@ class Policy(object):
     def close_sess(self):
         """ Close TensorFlow session """
         self.sess.close()
+
+    def save(self, path, step):
+        """ Save all weights to path """
+        save_path = self.saver.save(self.sess, os.path.join(path, "weights"), global_step=step)
+        print("Model saved in path: %s" % save_path)
+
+    def restore(self, path):
+        """ Restore weights from path """
+        self.saver.restore(self.sess, path)
+        print("Model restored.")
+
+
+

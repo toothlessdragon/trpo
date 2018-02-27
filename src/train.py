@@ -86,6 +86,7 @@ def run_episode(env, policy, scaler, animate=False):
         unscaled_obs: useful for training scaler, shape = (episode len, obs_dim)
     """
     obs = env.reset()
+    env.render(mode='rbg_array')
     observes, actions, rewards, unscaled_obs = [], [], [], []
     done = False
     step = 0.0
@@ -259,6 +260,15 @@ def log_batch_stats(observes, actions, advantages, disc_sum_rew, logger, episode
                 '_Episode': episode
                 })
 
+def record(env_name, record_path, policy, scaler):
+    """
+    Re create an env and record a video for one episode
+    """
+    env = gym.make(env_name)
+    env = gym.wrappers.Monitor(env, record_path, video_callable=lambda x: True, resume=True)
+    run_episode(env, policy, scaler)
+    env.close()
+
 
 def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size, hid1_mult, policy_logvar):
     """ Main training loop
@@ -276,10 +286,10 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size, hid1_mult, pol
     killer = GracefulKiller()
     env, obs_dim, act_dim = init_gym(env_name)
     obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
-    now = datetime.utcnow().strftime("%b-%d_%H:%M:%S")  # create unique directories
+    now = datetime.utcnow().strftime("%b-%d_%H.%M.%S")  # create unique directories
     logger = Logger(logname=env_name, now=now)
-    aigym_path = os.path.join('/tmp', env_name, now)
-    env = wrappers.Monitor(env, aigym_path, force=True)
+    aigym_path = os.path.join('results', env_name, now)
+    # env = wrappers.Monitor(env, aigym_path, force=True)
     scaler = Scaler(obs_dim)
     val_func = NNValueFunction(obs_dim, hid1_mult)
     policy = Policy(obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar)
@@ -287,6 +297,10 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size, hid1_mult, pol
     run_policy(env, policy, scaler, logger, episodes=5)
     episode = 0
     while episode < num_episodes:
+        if episode % 1000 is 0:
+            # record one episode
+            record(env_name, aigym_path, policy, scaler)
+            policy.save(aigym_path, episode)
         trajectories = run_policy(env, policy, scaler, logger, episodes=batch_size)
         episode += len(trajectories)
         add_value(trajectories, val_func)  # add estimated values to episodes
@@ -303,6 +317,8 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size, hid1_mult, pol
             if input('Terminate training (y/[n])? ') == 'y':
                 break
             killer.kill_now = False
+    #record one last episode
+    record(env_name, aigym_path, policy, scaler)
     logger.close()
     policy.close_sess()
     val_func.close_sess()
