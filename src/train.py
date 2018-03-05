@@ -99,7 +99,7 @@ def run_episode(env, policy, scaler, animate=False):
         obs = obs.astype(np.float32).reshape((1, -1))
         obs = np.append(obs, [[step]], axis=1)  # add time step feature
         unscaled_obs.append(obs)
-        obs = (obs - offset) * scale  # center and scale observations
+        # obs = (obs - offset) * scale  # center and scale observations
         observes.append(obs)
         action = policy.sample(obs).reshape((1, -1)).astype(np.float32)
         actions.append(action)
@@ -270,7 +270,8 @@ def record(env_name, record_path, policy, scaler):
     env.close()
 
 
-def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size, hid1_mult, policy_logvar):
+def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,
+         hid1_mult, policy_logvar, weights_path, init_episode):
     """ Main training loop
 
     Args:
@@ -292,10 +293,10 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size, hid1_mult, pol
     # env = wrappers.Monitor(env, aigym_path, force=True)
     scaler = Scaler(obs_dim)
     val_func = NNValueFunction(obs_dim, hid1_mult)
-    policy = Policy(obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar)
+    policy = Policy(obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar, weights_path)
     # run a few episodes of untrained policy to initialize scaler:
     run_policy(env, policy, scaler, logger, episodes=5)
-    episode = 0
+    episode = init_episode
     while episode < num_episodes:
         if episode % 1000 is 0:
             # record one episode
@@ -345,6 +346,12 @@ if __name__ == "__main__":
     parser.add_argument('-v', '--policy_logvar', type=float,
                         help='Initial policy log-variance (natural log of variance)',
                         default=-1.0)
+
+    parser.add_argument('-w', '--weights_path', type=str,
+                        help='Path of weights to load', default=None)
+
+    parser.add_argument('-i', '--init_episode', type=int,
+                        help='Episodes that have been trained already', default=0)
 
     args = parser.parse_args()
     main(**vars(args))
