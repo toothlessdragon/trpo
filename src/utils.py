@@ -61,22 +61,25 @@ class Scaler(object):
 
 class Logger(object):
     """ Simple training logger: saves to file and optionally prints to stdout """
-    def __init__(self, logname, now):
+    def __init__(self, logname, sub_dir):
         """
         Args:
             logname: name for log (e.g. 'Hopper-v1')
-            now: unique sub-directory name (e.g. date/time string)
+            sub_dir: unique sub-directory name (e.g. date/time string)
         """
-        path = os.path.join('log-files', logname, now)
-        os.makedirs(path)
+        self.write_header = False
+        path = os.path.join('log-files', logname, sub_dir)
+        if not os.path.exists(path):
+            os.makedirs(path)
+            self.write_header = True
         filenames = glob.glob('*.py')  # put copy of all python files in log_dir
         for filename in filenames:     # for reference
             shutil.copy(filename, path)
         path = os.path.join(path, 'log.csv')
 
-        self.write_header = True
+        self.init = False
         self.log_entry = {}
-        self.f = open(path, 'w')
+        self.f = open(path, 'a')
         self.writer = None  # DictWriter created with first call to write() method
 
     def write(self, display=True):
@@ -88,9 +91,11 @@ class Logger(object):
         """
         if display:
             self.disp(self.log_entry)
-        if self.write_header:
+        if not self.init:
             fieldnames = [x for x in self.log_entry.keys()]
             self.writer = csv.DictWriter(self.f, fieldnames=fieldnames)
+            self.init = True
+        if self.write_header:
             self.writer.writeheader()
             self.write_header = False
         self.writer.writerow(self.log_entry)

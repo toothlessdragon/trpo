@@ -27,6 +27,7 @@ the MuJoCo control tasks.
 """
 import gym
 import numpy as np
+import tensorflow as tf
 from gym import wrappers
 from policy import Policy
 from value_function import NNValueFunction
@@ -270,8 +271,8 @@ def record(env_name, record_path, policy, scaler):
     env.close()
 
 
-def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,
-         hid1_mult, policy_logvar, weights_path, init_episode):
+def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
+         policy_logvar, weights_path, init_episode, experiment_name, resume):
     """ Main training loop
 
     Args:
@@ -285,11 +286,17 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,
         policy_logvar: natural log of initial policy variance
     """
     killer = GracefulKiller()
+    logger = Logger(logname=env_name, sub_dir=experiment_name)
+    aigym_path = os.path.join('results', env_name, experiment_name)
+
+    if resume:
+        weights_path = aigym_path
+        ckpt = tf.train.get_checkpoint_state(weights_path)
+        init_episode = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
+
     env, obs_dim, act_dim = init_gym(env_name)
     obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
-    now = datetime.utcnow().strftime("%b-%d_%H.%M.%S")  # create unique directories
-    logger = Logger(logname=env_name, now=now)
-    aigym_path = os.path.join('results', env_name, now)
+
     # env = wrappers.Monitor(env, aigym_path, force=True)
     scaler = Scaler(obs_dim)
     val_func = NNValueFunction(obs_dim, hid1_mult)
@@ -297,7 +304,7 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,
     # run a few episodes of untrained policy to initialize scaler:
     run_policy(env, policy, scaler, logger, episodes=5)
     episode = init_episode
-    while episode < num_episodes:
+    while episode <= num_episodes:
         if episode % 1000 is 0:
             # record one episode
             record(env_name, aigym_path, policy, scaler)
@@ -329,7 +336,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=('Train policy on OpenAI Gym environment '
                                                   'using Proximal Policy Optimizer'))
     parser.add_argument('env_name', type=str, help='OpenAI Gym environment name')
-    parser.add_argument('-n', '--num_episodes', type=int, help='Number of episodes to run',
+    parser.add_argument('-n', '--num_episodes', type=int, help='Number of episodes to run until',
                         default=1000)
     parser.add_argument('-g', '--gamma', type=float, help='Discount factor', default=0.995)
     parser.add_argument('-l', '--lam', type=float, help='Lambda for Generalized Advantage Estimation',
@@ -352,6 +359,14 @@ if __name__ == "__main__":
 
     parser.add_argument('-i', '--init_episode', type=int,
                         help='Episodes that have been trained already', default=0)
+
+    parser.add_argument('-e', '--experiment_name', type=str,
+                        help='Name of experiment folder to save to',
+                        default=datetime.utcnow().strftime("%b-%d_%H.%M.%S"))
+
+    parser.add_argument('-r', '--resume',
+                        help='Resume training. experiment_name (-e) must be provided',
+                        action='store_true')
 
     args = parser.parse_args()
     main(**vars(args))
