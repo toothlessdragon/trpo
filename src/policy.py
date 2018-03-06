@@ -37,6 +37,7 @@ class Policy(object):
         self.g = tf.Graph()
         with self.g.as_default():
             self._placeholders()
+            self._scaler()
             self._policy_nn()
             self._dynamic_hyperparameters()
             self._logprob()
@@ -78,6 +79,32 @@ class Policy(object):
                                              trainable=False)
         self.lr = self.raw_lr * self.lr_multiplier
 
+
+
+    def _scaler(self):
+        ''' Scaler implementation in tensorflow'''
+        self.scale = tf.get_variable("mean", shape=[self.obs_dim], dtype=tf.float32, initializer=tf.zeros_initializer(),
+                                    trainable=False)
+        self.offset = tf.get_variable("var", shape=[self.obs_dim], dtype=tf.float32, initializer=tf.zeros_initializer(),
+                                   trainable=False)
+        # m = tf.get_variable("count", dtype=tf.float32, initializer=tf.constant(0.0), trainable=False)
+        #
+        # n = tf.cast(tf.shape(self.obs_ph)[0], tf.float32)
+        # batch_mean, batch_var = tf.nn.moments(self.obs_ph[:, 0:-1], [0])
+        # batch_mean_sq = tf.square(batch_mean, name="batch_mean_sq")
+        #
+        # new_mean = (self.mean * m) + (batch_mean * n) / (m + n)
+        #
+        # new_var = (((m * (self.var + tf.square(self.mean))) +
+        #             (n * (batch_var + batch_mean_sq))) / (m + n) -
+        #            tf.square(new_mean))
+        #
+        # self.scaler_update = []
+        # self.scaler_update.append(self.var.assign(tf.clip_by_value(new_var, 0, float("inf"))))
+        # self.scaler_update.append(self.mean.assign(new_mean))
+        # self.scaler_update.append(m.assign_add(n))
+
+
     def _policy_nn(self):
         """ Neural net for policy approximation function
 
@@ -91,8 +118,13 @@ class Policy(object):
         hid2_size = int(np.sqrt(hid1_size * hid3_size))
         # heuristic to set learning rate based on NN size (tuned on 'Hopper-v1')
         self.raw_lr = 9e-4 / np.sqrt(hid2_size)  # 9e-4 empirically determined
+
+        obs = (self.obs_ph - self.offset) * self.scale
+
+        # obs = tf.concat([norm_obs, self.obs_ph[:, -1:]], 1)
+
         # 3 hidden layers with tanh activations
-        out = tf.layers.dense(self.obs_ph, hid1_size, tf.tanh,
+        out = tf.layers.dense(obs, hid1_size, tf.tanh,
                               kernel_initializer=tf.random_normal_initializer(
                                   stddev=np.sqrt(1 / self.obs_dim)), name="h1")
         out = tf.layers.dense(out, hid2_size, tf.tanh,
@@ -173,7 +205,7 @@ class Policy(object):
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = optimizer.minimize(self.loss)
 
-    def _init_session(self, weights_path=None):
+    def _init_session(self):
         """Launch TensorFlow session and initialize variables"""
         self.sess = tf.Session(graph=self.g)
         self.sess.run(self.init)
@@ -224,6 +256,9 @@ class Policy(object):
                     'KL': kl,
                     'Beta': beta,
                     '_lr_multiplier': lr_multiplier})
+
+    def update_scaler(self, scale, offset):
+        self.sess.run([self.scale.assign(scale), self.offset.assign(offset)])
 
     def close_sess(self):
         """ Close TensorFlow session """

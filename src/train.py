@@ -91,9 +91,9 @@ def run_episode(env, policy, scaler, animate=False):
     observes, actions, rewards, unscaled_obs = [], [], [], []
     done = False
     step = 0.0
-    scale, offset = scaler.get()
-    scale[-1] = 1.0  # don't scale time step feature
-    offset[-1] = 0.0  # don't offset time step feature
+    # scale, offset = scaler.get()
+    # scale[-1] = 1.0  # don't scale time step feature
+    # offset[-1] = 0.0  # don't offset time step feature
     while not done:
         if animate:
             env.render()
@@ -142,7 +142,7 @@ def run_policy(env, policy, scaler, logger, episodes):
                       'unscaled_obs': unscaled_obs}
         trajectories.append(trajectory)
     unscaled = np.concatenate([t['unscaled_obs'] for t in trajectories])
-    scaler.update(unscaled)  # update running statistics for scaling observations
+    scaler.update(unscaled, policy)  # update running statistics for scaling observations
     logger.log({'_MeanReward': np.mean([t['rewards'].sum() for t in trajectories]),
                 'Steps': total_steps})
 

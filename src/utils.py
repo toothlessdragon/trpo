@@ -8,6 +8,7 @@ import os
 import shutil
 import glob
 import csv
+import tensorflow as tf
 
 
 class Scaler(object):
@@ -28,7 +29,7 @@ class Scaler(object):
         self.n = 0
         self.first_pass = True
 
-    def update(self, x):
+    def update(self, x, policy):
         """ Update running mean and variance (this is an exact method)
         Args:
             x: NumPy array, shape = (N, obs_dim)
@@ -54,6 +55,11 @@ class Scaler(object):
             self.means = new_means
             self.m += n
 
+        self.means[-1] = 0
+        offset = 1/(np.sqrt(self.vars) + 0.1)/3
+        offset[-1] = 0
+        policy.update_scaler(offset, self.means)
+
     def get(self):
         """ returns 2-tuple: (scale, offset) """
         return 1/(np.sqrt(self.vars) + 0.1)/3, self.means
@@ -75,6 +81,7 @@ class Logger(object):
         filenames = glob.glob('*.py')  # put copy of all python files in log_dir
         for filename in filenames:     # for reference
             shutil.copy(filename, path)
+        self.tbwriter = tf.summary.FileWriter(path)
         path = os.path.join(path, 'log.csv')
 
         self.init = False
@@ -99,6 +106,13 @@ class Logger(object):
             self.writer.writeheader()
             self.write_header = False
         self.writer.writerow(self.log_entry)
+
+        episode = self.log_entry["_Episode"]
+        summary = [tf.Summary.Value(tag=tag, simple_value=val)
+                   for tag, val in self.log_entry.items()
+                   if tag is not "_Episode"]
+
+        self.tbwriter.add_summary(tf.Summary(value=summary), episode)
         self.log_entry = {}
 
     @staticmethod
