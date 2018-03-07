@@ -81,9 +81,15 @@ def adjust_reward(obs, reward):
     bend_knee_advantage  = 0.01 * (abs(left_knee) + abs(right_knee))
     return reward - 0.5 * (hip_y_dist + knee_dist)**2 + bend_knee_advantage
 
+def augment_obs(obs, prev_obs, control_step=1e-3):
+    if prev_obs is None:
+        delta = np.zeros(obs.shape)
+    else:
+        delta = (obs - prev_obs) / control_step
+    obs = np.concatenate([obs, delta], 0)
+    return obs
 
-
-def run_episode(env, policy, scaler, animate=False):
+def run_episode(env, policy, scaler, animate=False, augment=False):
     """ Run single episode with option to animate
 
     Args:
@@ -100,13 +106,18 @@ def run_episode(env, policy, scaler, animate=False):
         unscaled_obs: useful for training scaler, shape = (episode len, obs_dim)
     """
     obs = env.reset()
-    env.render(mode='rbg_array')
+    if augment:
+        obs = np.concatenate([obs, np.zeros(obs.shape)], 0)
+    # env.render(mode='rbg_array')
     observes, actions, rewards, unscaled_rewards, unscaled_obs = [], [], [], [], []
     done = False
     step = 0.0
     scale, offset = scaler.get()
     # scale[-1] = 1.0  # don't scale time step feature
     # offset[-1] = 0.0  # don't offset time step feature
+
+    prev_obs = None
+
     while not done:
         if animate:
             env.render()
@@ -116,14 +127,23 @@ def run_episode(env, policy, scaler, animate=False):
         obs = (obs - offset) * scale  # center and scale observations
         observes.append(obs)
         action = policy.sample(obs).reshape((1, -1)).astype(np.float32)
+        # augmented_obs = augment_obs(obs[:45], prev_obs, control_step=1e-3)
+        # observes.append(augmented_obs)
+        # action = policy.sample(augmented_obs).reshape((1, -1)).astype(np.float32)
         actions.append(action)
         obs, reward, done, _ = env.step(np.squeeze(action, axis=0))
+        if augment:
+            obs = augment_obs(obs, prev_obs, control_step=1e-3)
+
+
         if not isinstance(reward, float):
             reward = np.asscalar(reward)
         unscaled_rewards.append(reward)
         rewards.append(adjust_reward(obs, reward))
         step += 1e-3  # increment time step feature
-
+        if augment:
+            prev_obs = obs[:376]
+    print(obs.shape)
     return (np.concatenate(observes), np.concatenate(actions),
             np.array(rewards, dtype=np.float64),
             np.array(unscaled_rewards, dtype=np.float64), np.concatenate(unscaled_obs))
@@ -289,7 +309,7 @@ def record(env_name, record_path, policy, scaler):
 
 
 def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
-         policy_logvar, weights_path, init_episode, experiment_name, resume):
+         policy_logvar, weights_path, init_episode, experiment_name, resume, augment=False):
     """ Main training loop
 
     Args:
@@ -315,6 +335,8 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
     # obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
 
     # env = wrappers.Monitor(env, aigym_path, force=True)
+    if augment:
+        obs_dim *= 2
     scaler = Scaler(obs_dim)
     val_func = NNValueFunction(obs_dim, hid1_mult)
     policy = Policy(obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar, weights_path)
