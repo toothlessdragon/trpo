@@ -78,7 +78,8 @@ def adjust_reward(obs, reward):
     right_knee = obs[11]
     hip_y_dist = abs(left_hip_y - right_hip_y)
     knee_dist = abs(left_knee - right_knee)
-    return reward - 0.5 * (hip_y_dist + knee_dist)**2
+    bend_knee_advantage  = 0.01 * (abs(left_knee) + abs(right_knee))
+    return reward - 0.5 * (hip_y_dist + knee_dist)**2 + bend_knee_advantage
 
 
 
@@ -100,7 +101,7 @@ def run_episode(env, policy, scaler, animate=False):
     """
     obs = env.reset()
     env.render(mode='rbg_array')
-    observes, actions, rewards, unscaled_obs = [], [], [], []
+    observes, actions, rewards, unscaled_rewards, unscaled_obs = [], [], [], [], []
     done = False
     step = 0.0
     scale, offset = scaler.get()
@@ -119,12 +120,13 @@ def run_episode(env, policy, scaler, animate=False):
         obs, reward, done, _ = env.step(np.squeeze(action, axis=0))
         if not isinstance(reward, float):
             reward = np.asscalar(reward)
-        reward = adjust_reward(obs, reward)
-        rewards.append(reward)
+        unscaled_rewards.append(reward)
+        rewards.append(adjust_reward(obs, reward))
         step += 1e-3  # increment time step feature
 
     return (np.concatenate(observes), np.concatenate(actions),
-            np.array(rewards, dtype=np.float64), np.concatenate(unscaled_obs))
+            np.array(rewards, dtype=np.float64),
+            np.array(unscaled_rewards, dtype=np.float64), np.concatenate(unscaled_obs))
 
 
 def run_policy(env, policy, scaler, logger, episodes):
@@ -147,16 +149,18 @@ def run_policy(env, policy, scaler, logger, episodes):
     total_steps = 0
     trajectories = []
     for e in range(episodes):
-        observes, actions, rewards, unscaled_obs = run_episode(env, policy, scaler)
+        observes, actions, rewards, unscaled_rewards, unscaled_obs = run_episode(env, policy, scaler)
         total_steps += observes.shape[0]
         trajectory = {'observes': observes,
                       'actions': actions,
                       'rewards': rewards,
+                      'unscaled_rewards': unscaled_rewards,
                       'unscaled_obs': unscaled_obs}
         trajectories.append(trajectory)
     unscaled = np.concatenate([t['unscaled_obs'] for t in trajectories])
     scaler.update(unscaled, policy)  # update running statistics for scaling observations
-    logger.log({'_MeanReward': np.mean([t['rewards'].sum() for t in trajectories]),
+    logger.log({'_MeanReward': np.mean([t['unscaled_rewards'].sum() for t in trajectories]),
+                '_ModifiedMeanReward': np.mean([t['rewards'].sum() for t in trajectories]),
                 'Steps': total_steps})
 
     return trajectories

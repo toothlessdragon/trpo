@@ -45,7 +45,7 @@ class Policy(object):
             self._sample()
             self._loss_train_op()
             self.init = tf.global_variables_initializer()
-            self.saver = tf.train.Saver(max_to_keep=5)
+            self.saver = tf.train.Saver(max_to_keep=1)
 
     def _placeholders(self):
         """ Input placeholders"""
