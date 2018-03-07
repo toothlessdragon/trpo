@@ -89,7 +89,7 @@ def augment_obs(obs, prev_obs, control_step=1e-3):
     obs = np.concatenate([obs, delta], 0)
     return obs
 
-def run_episode(env, policy, scaler, animate=False, augment=False):
+def run_episode(env, policy, scaler, animate=False, augment=True):
     """ Run single episode with option to animate
 
     Args:
@@ -143,7 +143,6 @@ def run_episode(env, policy, scaler, animate=False, augment=False):
         step += 1e-3  # increment time step feature
         if augment:
             prev_obs = obs[:376]
-    print(obs.shape)
     return (np.concatenate(observes), np.concatenate(actions),
             np.array(rewards, dtype=np.float64),
             np.array(unscaled_rewards, dtype=np.float64), np.concatenate(unscaled_obs))
@@ -303,13 +302,13 @@ def record(env_name, record_path, policy, scaler):
     Re create an env and record a video for one episode
     """
     env = gym.make(env_name)
-    env = gym.wrappers.Monitor(env, record_path, video_callable=lambda x: True, resume=True)
-    run_episode(env, policy, scaler)
+    # env = gym.wrappers.Monitor(env, record_path, video_callable=lambda x: True, resume=True)
+    # run_episode(env, policy, scaler)
     env.close()
 
 
 def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
-         policy_logvar, weights_path, init_episode, experiment_name, resume, augment=False):
+         policy_logvar, weights_path, init_episode, experiment_name, resume, augment=True):
     """ Main training loop
 
     Args:
