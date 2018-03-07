@@ -6,6 +6,7 @@ Written by Patrick Coady (pat-coady.github.io)
 import numpy as np
 import tensorflow as tf
 import os
+from tensorflow.python import pywrap_tensorflow
 
 
 class Policy(object):
@@ -231,18 +232,18 @@ class Policy(object):
 
     def _scaler(self):
         ''' Scaler implementation in tensorflow'''
-        self.means = tf.get_variable("mean", shape=[self.obs_dim], dtype=tf.float32, initializer=tf.zeros_initializer(),
+        self.obs_means = tf.get_variable("obs_mean", shape=[self.obs_dim], dtype=tf.float32, initializer=tf.zeros_initializer(),
                                     trainable=False)
-        self.var = tf.get_variable("var", shape=[self.obs_dim], dtype=tf.float32, initializer=tf.zeros_initializer(),
+        self.vars = tf.get_variable("var", shape=[self.obs_dim], dtype=tf.float32, initializer=tf.zeros_initializer(),
                                    trainable=False)
 
         self.m = tf.get_variable("obs_count", dtype=tf.float32, initializer=tf.constant(0.0), trainable=False)
 
     def get_scaler(self):
-        return self.sess.run([self.means, self.var, self.m])
+        return self.sess.run([self.obs_means, self.vars, self.m])
 
     def update_scaler(self, means, var, m):
-        self.sess.run([self.means.assign(means), self.var.assign(var), self.m.assign(m)])
+        self.sess.run([self.obs_means.assign(means), self.vars.assign(var), self.m.assign(m)])
 
     def close_sess(self):
         """ Close TensorFlow session """
@@ -253,10 +254,26 @@ class Policy(object):
         save_path = self.saver.save(self.sess, os.path.join(path, "weights"), global_step=step)
         print("Model saved in path: %s" % save_path)
 
+    # def restore(self, path):
+     #   """ Restore weights from path """
+      #  self.saver.restore(self.sess, tf.train.latest_checkpoint(path))
+       # print("Model restored.")
+
     def restore(self, path):
         """ Restore weights from path """
-        self.saver.restore(self.sess, tf.train.latest_checkpoint(path))
+        var_list= self.print_tensors_in_checkpoint_file(tf.train.latest_checkpoint(path))
+        variables = self.g.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        restore_list = [var for var in variables if var._shared_name in var_list]
+        saver = tf.train.Saver(restore_list)
+        saver.restore(self.sess, tf.train.latest_checkpoint(path))
         print("Model restored.")
 
 
+    def print_tensors_in_checkpoint_file(self, file_name):
+        varlist=[]
+        reader = pywrap_tensorflow.NewCheckpointReader(file_name)
+        var_to_shape_map = reader.get_variable_to_shape_map()
+        for key in sorted(var_to_shape_map):
+            varlist.append(key)
+        return varlist
 
