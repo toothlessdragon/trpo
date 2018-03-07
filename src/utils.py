@@ -25,40 +25,39 @@ class Scaler(object):
         """
         self.vars = np.zeros(obs_dim)
         self.means = np.zeros(obs_dim)
-        self.m = 0
-        self.n = 0
-        self.first_pass = True
 
-    def update(self, x, policy):
+
+    def update(self, x, state):
         """ Update running mean and variance (this is an exact method)
         Args:
             x: NumPy array, shape = (N, obs_dim)
+            state: tensorflow state storage
 
         see: https://stats.stackexchange.com/questions/43159/how-to-calculate-pooled-
                variance-of-two-groups-given-known-group-variances-mean
         """
-        if self.first_pass:
-            self.means = np.mean(x, axis=0)
-            self.vars = np.var(x, axis=0)
-            self.m = x.shape[0]
-            self.first_pass = False
+        means, vars, m = state.get_scaler()
+
+        if m <= 0:
+            means = np.mean(x, axis=0)
+            vars = np.var(x, axis=0)
+            m = x.shape[0]
         else:
             n = x.shape[0]
             new_data_var = np.var(x, axis=0)
             new_data_mean = np.mean(x, axis=0)
             new_data_mean_sq = np.square(new_data_mean)
-            new_means = ((self.means * self.m) + (new_data_mean * n)) / (self.m + n)
-            self.vars = (((self.m * (self.vars + np.square(self.means))) +
-                          (n * (new_data_var + new_data_mean_sq))) / (self.m + n) -
+            new_means = ((means * m) + (new_data_mean * n)) / (m + n)
+            vars = (((m * (vars + np.square(means))) +
+                          (n * (new_data_var + new_data_mean_sq))) / (m + n) -
                          np.square(new_means))
-            self.vars = np.maximum(0.0, self.vars)  # occasionally goes negative, clip
-            self.means = new_means
-            self.m += n
+            vars = np.maximum(0.0, vars)  # occasionally goes negative, clip
+            means = new_means
+            m += n
 
-        self.means[-1] = 0
-        offset = 1/(np.sqrt(self.vars) + 0.1)/3
-        offset[-1] = 0
-        policy.update_scaler(offset, self.means)
+        self.means = means
+        self.vars = vars
+        state.update_scaler(means, vars, m)
 
     def get(self):
         """ returns 2-tuple: (scale, offset) """

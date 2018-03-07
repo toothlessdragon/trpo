@@ -69,6 +69,18 @@ def init_gym(env_name):
 
     return env, obs_dim, act_dim
 
+def adjust_reward(obs, reward):
+    # try enforce hip y to be same
+    # knee
+    left_hip_y = obs[14]
+    right_hip_y = obs[10]
+    left_knee = obs[15]
+    right_knee = obs[11]
+    hip_y_dist = abs(left_hip_y - right_hip_y)
+    knee_dist = abs(left_knee - right_knee)
+    return reward - 0.5 * (hip_y_dist + knee_dist)**2
+
+
 
 def run_episode(env, policy, scaler, animate=False):
     """ Run single episode with option to animate
@@ -91,22 +103,23 @@ def run_episode(env, policy, scaler, animate=False):
     observes, actions, rewards, unscaled_obs = [], [], [], []
     done = False
     step = 0.0
-    # scale, offset = scaler.get()
+    scale, offset = scaler.get()
     # scale[-1] = 1.0  # don't scale time step feature
     # offset[-1] = 0.0  # don't offset time step feature
     while not done:
         if animate:
             env.render()
         obs = obs.astype(np.float32).reshape((1, -1))
-        obs = np.append(obs, [[step]], axis=1)  # add time step feature
+        # obs = np.append(obs, [[step]], axis=1)  # add time step feature
         unscaled_obs.append(obs)
-        # obs = (obs - offset) * scale  # center and scale observations
+        obs = (obs - offset) * scale  # center and scale observations
         observes.append(obs)
         action = policy.sample(obs).reshape((1, -1)).astype(np.float32)
         actions.append(action)
         obs, reward, done, _ = env.step(np.squeeze(action, axis=0))
         if not isinstance(reward, float):
             reward = np.asscalar(reward)
+        reward = adjust_reward(obs, reward)
         rewards.append(reward)
         step += 1e-3  # increment time step feature
 
@@ -295,7 +308,7 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
         init_episode = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
 
     env, obs_dim, act_dim = init_gym(env_name)
-    obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
+    # obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
 
     # env = wrappers.Monitor(env, aigym_path, force=True)
     scaler = Scaler(obs_dim)
