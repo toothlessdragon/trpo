@@ -17,3 +17,6 @@ sudo apt-get install -y python3-pip;
 pip3 install --upgrade pip;
 sudo -H pip3 install pyopengl;
 pip3 install -e $ROBOSCHOOL_PATH;
+#git clone https://github.com/openai/gym;
+#cd gym;
+#pip install -e .;
