@@ -11,7 +11,7 @@ from tensorflow.python import pywrap_tensorflow
 
 class Policy(object):
     """ NN-based policy approximation """
-    def __init__(self, obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar, weights_path):
+    def __init__(self, obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar, weights_path, delta=0.8):
         """
         Args:
             obs_dim: num observation dimensions (int)
@@ -28,6 +28,7 @@ class Policy(object):
         self.raw_lr = None
         self.obs_dim = obs_dim
         self.act_dim = act_dim
+        self.delta = delta
         self._build_graph()
         self._init_session()
         if weights_path is not None:
@@ -53,6 +54,7 @@ class Policy(object):
         # observations, actions and advantages:
         self.obs_ph = tf.placeholder(tf.float32, (None, self.obs_dim), 'obs')
         self.act_ph = tf.placeholder(tf.float32, (None, self.act_dim), 'act')
+        self.sym_act_ph = tf.placeholder(tf.float32, (None, self.act_dim), 'sym_act')
         self.advantages_ph = tf.placeholder(tf.float32, (None,), 'advantages')
         # # strength of D_KL loss terms:
         # self.beta_ph = tf.placeholder(tf.float32, (), 'beta')
@@ -160,6 +162,7 @@ class Policy(object):
                             tf.exp(self.log_vars / 2.0) *
                             tf.random_normal(shape=(self.act_dim,)))
 
+
     def _loss_train_op(self):
         """
         Three loss terms:
@@ -173,7 +176,8 @@ class Policy(object):
                                 tf.exp(self.logp - self.logp_old))
         loss2 = tf.reduce_mean(self.beta * self.kl)
         loss3 = self.eta * tf.square(tf.maximum(0.0, self.kl - 2.0 * self.kl_targ))
-        self.loss = loss1 + loss2 + loss3
+        sym_loss = tf.nn.l2_loss(self.act_ph - self.sym_act_ph)
+        self.loss = self.delta*(loss1 + loss2 + loss3) + (1.0 - self.delta) * sym_loss
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = optimizer.minimize(self.loss)
 
@@ -188,7 +192,7 @@ class Policy(object):
 
         return self.sess.run(self.sampled_act, feed_dict=feed_dict)
 
-    def update(self, observes, actions, advantages, logger):
+    def update(self, observes, actions, sym_actions, advantages, logger):
         """ Update policy based on observations, actions and advantages
 
         Args:
@@ -199,6 +203,7 @@ class Policy(object):
         """
         feed_dict = {self.obs_ph: observes,
                      self.act_ph: actions,
+                     self.sym_act_ph: sym_actions,
                      self.advantages_ph: advantages}
         old_means_np, old_log_vars_np = self.sess.run([self.means, self.log_vars],
                                                       feed_dict)

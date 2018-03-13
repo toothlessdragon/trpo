@@ -110,7 +110,7 @@ def run_episode(env, policy, scaler, animate=False, augment=False):
     if augment:
         obs = np.concatenate([obs, np.zeros(obs.shape)], 0)
     # env.render(mode='rbg_array')
-   # obs = obs[0:45]
+    obs = obs[0:45]
     observes, actions, rewards, unscaled_rewards, unscaled_obs = [], [], [], [], []
     done = False
     step = 0.0
@@ -129,12 +129,12 @@ def run_episode(env, policy, scaler, animate=False, augment=False):
         obs = (obs - offset) * scale  # center and scale observations
         observes.append(obs)
         action = policy.sample(obs).reshape((1, -1)).astype(np.float32)
-        # augmented_obs = augment_obs(obs[:45], prev_obs, control_step=1e-3)
+        # augmented_obs = augment_obs(obs, prev_obs, control_step=1e-3)
         # observes.append(augmented_obs)
         # action = policy.sample(augmented_obs).reshape((1, -1)).astype(np.float32)
         actions.append(action)
         obs, reward, done, _ = env.step(np.squeeze(action, axis=0))
-        #obs = obs[0:45]
+        obs = obs[0:45]
         if augment:
             obs = augment_obs(obs, prev_obs, control_step=1e-3)
         if not isinstance(reward, float):
@@ -308,6 +308,31 @@ def record(env_name, record_path, policy, scaler, augment):
     env.close()
 
 
+
+def calc_sym_actions(policy, observes, actions):
+    ''' Calculate symmetric actions for symmetry loss '''
+
+    # BipedalWalker-v2 mirror obs
+    def bipedal_mirror_obs(obs):
+        first = obs[:, 0:4]
+
+        def mirror(vec):
+            return np.stack([vec[:, 5:10], vec[:, 0:5]], axis=1)
+
+        # flip the next bits
+        second = mirror(obs[:, 4:14])
+        # flip again
+        third = mirror(obs[:, 14, 23])
+        return np.stack([first, second, third], axis=1)
+
+    def bipedal_mirror_actions(actions):
+        return np.stack([actions[:, 0:2], actions[:, 2:4]], axis=1)
+
+    mirror_obs = bipedal_mirror_obs(observes)
+    mirror_actions = policy.sample(mirror_obs)
+    return bipedal_mirror_actions(mirror_actions)
+
+
 def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
          policy_logvar, weights_path, init_episode, experiment_name, resume, augment=False):
     """ Main training loop
@@ -332,7 +357,7 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
         init_episode = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
 
     env, obs_dim, act_dim = init_gym(env_name)
-   # obs_dim = 45
+    obs_dim = 45
     # obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
 
     # env = wrappers.Monitor(env, aigym_path, force=True)
@@ -358,7 +383,8 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
         observes, actions, advantages, disc_sum_rew = build_train_set(trajectories)
         # add various stats to training log:
         log_batch_stats(observes, actions, advantages, disc_sum_rew, logger, episode)
-        policy.update(observes, actions, advantages, logger)  # update policy
+        sym_actions = calc_sym_actions(policy, observes, actions)
+        policy.update(observes, actions, sym_actions, advantages, logger)  # update policy
         val_func.fit(observes, disc_sum_rew, logger)  # update value function
         logger.write(display=True)  # write logger results to file and stdout
         if killer.kill_now:
