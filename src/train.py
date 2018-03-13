@@ -72,14 +72,15 @@ def init_gym(env_name):
 def adjust_reward(obs, reward):
     # try enforce hip y to be same
     # knee
-    left_hip_y = obs[14]
-    right_hip_y = obs[10]
-    left_knee = obs[15]
-    right_knee = obs[11]
-    hip_y_dist = abs(left_hip_y - right_hip_y)
-    knee_dist = abs(left_knee - right_knee)
-    bend_knee_advantage  = 0.01 * (abs(left_knee) + abs(right_knee))
-    return reward - 0.5 * (hip_y_dist + knee_dist)**2 + bend_knee_advantage
+    #left_hip_y = obs[14]
+    #right_hip_y = obs[10]
+    #left_knee = obs[15]
+    #right_knee = obs[11]
+    #hip_y_dist = abs(left_hip_y - right_hip_y)
+    #knee_dist = abs(left_knee - right_knee)
+    #bend_knee_advantage = 0.01 * (abs(left_knee) + abs(right_knee))
+    #return reward - 0.5 * (hip_y_dist + knee_dist)**2 + bend_knee_advantage
+    return reward
 
 def augment_obs(obs, prev_obs, control_step=1e-3):
     if prev_obs is None:
@@ -89,7 +90,7 @@ def augment_obs(obs, prev_obs, control_step=1e-3):
     obs = np.concatenate([obs, delta], 0)
     return obs
 
-def run_episode(env, policy, scaler, animate=False, augment=True):
+def run_episode(env, policy, scaler, animate=False, augment=False):
     """ Run single episode with option to animate
 
     Args:
@@ -109,6 +110,7 @@ def run_episode(env, policy, scaler, animate=False, augment=True):
     if augment:
         obs = np.concatenate([obs, np.zeros(obs.shape)], 0)
     # env.render(mode='rbg_array')
+   # obs = obs[0:45]
     observes, actions, rewards, unscaled_rewards, unscaled_obs = [], [], [], [], []
     done = False
     step = 0.0
@@ -132,10 +134,9 @@ def run_episode(env, policy, scaler, animate=False, augment=True):
         # action = policy.sample(augmented_obs).reshape((1, -1)).astype(np.float32)
         actions.append(action)
         obs, reward, done, _ = env.step(np.squeeze(action, axis=0))
+        #obs = obs[0:45]
         if augment:
             obs = augment_obs(obs, prev_obs, control_step=1e-3)
-
-
         if not isinstance(reward, float):
             reward = np.asscalar(reward)
         unscaled_rewards.append(reward)
@@ -148,7 +149,7 @@ def run_episode(env, policy, scaler, animate=False, augment=True):
             np.array(unscaled_rewards, dtype=np.float64), np.concatenate(unscaled_obs))
 
 
-def run_policy(env, policy, scaler, logger, episodes):
+def run_policy(env, policy, scaler, logger, episodes, augment):
     """ Run policy and collect data for a minimum of min_steps and min_episodes
 
     Args:
@@ -168,7 +169,7 @@ def run_policy(env, policy, scaler, logger, episodes):
     total_steps = 0
     trajectories = []
     for e in range(episodes):
-        observes, actions, rewards, unscaled_rewards, unscaled_obs = run_episode(env, policy, scaler)
+        observes, actions, rewards, unscaled_rewards, unscaled_obs = run_episode(env, policy, scaler, augment=augment)
         total_steps += observes.shape[0]
         trajectory = {'observes': observes,
                       'actions': actions,
@@ -297,18 +298,18 @@ def log_batch_stats(observes, actions, advantages, disc_sum_rew, logger, episode
                 '_Episode': episode
                 })
 
-def record(env_name, record_path, policy, scaler):
+def record(env_name, record_path, policy, scaler, augment):
     """
     Re create an env and record a video for one episode
     """
     env = gym.make(env_name)
-    # env = gym.wrappers.Monitor(env, record_path, video_callable=lambda x: True, resume=True)
-    # run_episode(env, policy, scaler)
+    env = gym.wrappers.Monitor(env, record_path, video_callable=lambda x: True, resume=True)
+    run_episode(env, policy, scaler, augment=augment)
     env.close()
 
 
 def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
-         policy_logvar, weights_path, init_episode, experiment_name, resume, augment=True):
+         policy_logvar, weights_path, init_episode, experiment_name, resume, augment=False):
     """ Main training loop
 
     Args:
@@ -331,6 +332,7 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
         init_episode = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
 
     env, obs_dim, act_dim = init_gym(env_name)
+   # obs_dim = 45
     # obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
 
     # env = wrappers.Monitor(env, aigym_path, force=True)
@@ -340,14 +342,14 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
     val_func = NNValueFunction(obs_dim, hid1_mult)
     policy = Policy(obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar, weights_path)
     # run a few episodes of untrained policy to initialize scaler:
-    run_policy(env, policy, scaler, logger, episodes=5)
+    run_policy(env, policy, scaler, logger, 5, augment)
     episode = init_episode
     while episode <= num_episodes:
         if episode % 1000 is 0:
             # record one episode
-            record(env_name, aigym_path, policy, scaler)
+            record(env_name, aigym_path, policy, scaler, augment)
             policy.save(aigym_path, episode)
-        trajectories = run_policy(env, policy, scaler, logger, episodes=batch_size)
+        trajectories = run_policy(env, policy, scaler, logger, batch_size, augment)
         episode += len(trajectories)
         add_value(trajectories, val_func)  # add estimated values to episodes
         add_disc_sum_rew(trajectories, gamma)  # calculated discounted sum of Rs
@@ -364,7 +366,7 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
                 break
             killer.kill_now = False
     #record one last episode
-    record(env_name, aigym_path, policy, scaler)
+    record(env_name, aigym_path, policy, scaler, augment)
     logger.close()
     policy.close_sess()
     val_func.close_sess()
