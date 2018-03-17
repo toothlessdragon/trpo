@@ -11,7 +11,7 @@ from tensorflow.python import pywrap_tensorflow
 
 class Policy(object):
     """ NN-based policy approximation """
-    def __init__(self, obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar, weights_path, delta=0.8):
+    def __init__(self, obs_dim, act_dim, kl_targ, hid1_mult, policy_logvar, weights_path, delta=0.2):
         """
         Args:
             obs_dim: num observation dimensions (int)
@@ -177,7 +177,7 @@ class Policy(object):
         loss2 = tf.reduce_mean(self.beta * self.kl)
         loss3 = self.eta * tf.square(tf.maximum(0.0, self.kl - 2.0 * self.kl_targ))
         sym_loss = tf.nn.l2_loss(self.act_ph - self.sym_act_ph)
-        self.loss = self.delta*(loss1 + loss2 + loss3) + (1.0 - self.delta) * sym_loss
+        self.loss = (1.0 - self.delta)*(loss1 + loss2 + loss3) + self.delta * sym_loss
         optimizer = tf.train.AdamOptimizer(self.lr)
         self.train_op = optimizer.minimize(self.loss)
 

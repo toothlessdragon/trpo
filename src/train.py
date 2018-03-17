@@ -312,25 +312,35 @@ def record(env_name, record_path, policy, scaler, augment):
 def calc_sym_actions(policy, observes, actions):
     ''' Calculate symmetric actions for symmetry loss '''
 
-    # BipedalWalker-v2 mirror obs
-    def bipedal_mirror_obs(obs):
-        first = obs[:, 0:4]
+    # Humanoid-v2 mirror obs
+    def humanoid_mirror_obs(obs):
+        root_z = obs[:, 0:1]
+        idx = np.argsort([0, 2, 3, 1])
+        root_quaternion = obs[:, 1:5][:, idx]
+        abs_z = -1.0*obs[:, 5:6] # flip abs rotation along z-axis
+        abs_y = obs[:, 6:7] # don't fip abs rotation along y-axis
+        abs_x = -1.0*obs[:, 7:8] # flip abs rotation along x-axis
+        abs_rot = np.concatenate((abs_z, abs_y, abs_x), axis=1)  # flip
+        legs = np.concatenate((obs[:, 12:16], obs[:, 8:12]), axis=1)  # flip left-right hips and knee
+        arms = np.concatenate((obs[:, 19:22], obs[:, 16:19]), axis=1)  # flip left-right shoulder and elbow
+        root_vel = obs[:, 22:31] * [[1, -1, 1, 1, -1, 1, -1, 1, -1]]
+        legs_vel = np.concatenate((obs[:, 35:39], obs[:, 31:35]), axis=1)  # flip left-right hips and knee
+        arms_vel = np.concatenate((obs[:, 42:45], obs[:, 39:42]), axis=1)  # flip left-right shoulder and elbow
+        return np.concatenate((root_z, root_quaternion, abs_rot, legs, arms, root_vel, legs_vel, arms_vel), axis=1)
 
-        def mirror(vec):
-            return np.stack([vec[:, 5:10], vec[:, 0:5]], axis=1)
 
-        # flip the next bits
-        second = mirror(obs[:, 4:14])
-        # flip again
-        third = mirror(obs[:, 14, 23])
-        return np.stack([first, second, third], axis=1)
+    def humanoid_mirror_actions(actions):
+        abs_y = actions[:, 0:1] # don't fip abs rotation along y-axis
+        abs_z = -1.0*actions[:, 1:2] # flip abs rotation along z-axis
+        abs_x = -1.0*actions[:, 2:3] # flip abs rotation along x-axis
+        abs = np.concatenate((abs_z, abs_y, abs_x), axis=1)  # flip
+        legs = np.concatenate((actions[:, 7:11], actions[:, 3:7]), axis=1)  # flip left-right hips and knee
+        arms = np.concatenate((actions[:, 14:17], actions[:, 11:14]), axis=1)  # flip left-right shoulder and elbow
+        return np.concatenate((abs, legs, arms), axis=1)
 
-    def bipedal_mirror_actions(actions):
-        return np.stack([actions[:, 0:2], actions[:, 2:4]], axis=1)
-
-    mirror_obs = bipedal_mirror_obs(observes)
+    mirror_obs = humanoid_mirror_obs(observes)
     mirror_actions = policy.sample(mirror_obs)
-    return bipedal_mirror_actions(mirror_actions)
+    return humanoid_mirror_actions(mirror_actions)
 
 
 def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
