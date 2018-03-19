@@ -110,7 +110,7 @@ def run_episode(env, policy, scaler, animate=False, augment=False):
     if augment:
         obs = np.concatenate([obs, np.zeros(obs.shape)], 0)
     # env.render(mode='rbg_array')
-   # obs = obs[0:45]
+    obs = obs[0:45]
     observes, actions, rewards, unscaled_rewards, unscaled_obs = [], [], [], [], []
     done = False
     step = 0.0
@@ -129,12 +129,12 @@ def run_episode(env, policy, scaler, animate=False, augment=False):
         obs = (obs - offset) * scale  # center and scale observations
         observes.append(obs)
         action = policy.sample(obs).reshape((1, -1)).astype(np.float32)
-        # augmented_obs = augment_obs(obs[:45], prev_obs, control_step=1e-3)
+        # augmented_obs = augment_obs(obs, prev_obs, control_step=1e-3)
         # observes.append(augmented_obs)
         # action = policy.sample(augmented_obs).reshape((1, -1)).astype(np.float32)
         actions.append(action)
         obs, reward, done, _ = env.step(np.squeeze(action, axis=0))
-        #obs = obs[0:45]
+        obs = obs[0:45]
         if augment:
             obs = augment_obs(obs, prev_obs, control_step=1e-3)
         if not isinstance(reward, float):
@@ -308,6 +308,41 @@ def record(env_name, record_path, policy, scaler, augment):
     env.close()
 
 
+
+def calc_sym_actions(policy, observes, actions):
+    ''' Calculate symmetric actions for symmetry loss '''
+
+    # Humanoid-v2 mirror obs
+    def humanoid_mirror_obs(obs):
+        root_z = obs[:, 0:1]
+        idx = np.argsort([0, 3, 1, 2])
+        root_quaternion = obs[:, 1:5][:, idx]
+        abs_z = -1.0*obs[:, 5:6] # flip abs rotation along z-axis
+        abs_y = obs[:, 6:7] # don't fip abs rotation along y-axis
+        abs_x = -1.0*obs[:, 7:8] # flip abs rotation along x-axis
+        abs_rot = np.concatenate((abs_z, abs_y, abs_x), axis=1)  # flip
+        legs = np.concatenate((obs[:, 12:16], obs[:, 8:12]), axis=1)  # flip left-right hips and knee
+        arms = np.concatenate((obs[:, 19:22], obs[:, 16:19]), axis=1)  # flip left-right shoulder and elbow
+        root_vel = obs[:, 22:31] * [[1, -1, 1, 1, -1, 1, -1, 1, -1]]
+        legs_vel = np.concatenate((obs[:, 35:39], obs[:, 31:35]), axis=1)  # flip left-right hips and knee
+        arms_vel = np.concatenate((obs[:, 42:45], obs[:, 39:42]), axis=1)  # flip left-right shoulder and elbow
+        return np.concatenate((root_z, root_quaternion, abs_rot, legs, arms, root_vel, legs_vel, arms_vel), axis=1)
+
+
+    def humanoid_mirror_actions(actions):
+        abs_y = actions[:, 0:1] # don't fip abs rotation along y-axis
+        abs_z = -1.0*actions[:, 1:2] # flip abs rotation along z-axis
+        abs_x = -1.0*actions[:, 2:3] # flip abs rotation along x-axis
+        abs = np.concatenate((abs_z, abs_y, abs_x), axis=1)  # flip
+        legs = np.concatenate((actions[:, 7:11], actions[:, 3:7]), axis=1)  # flip left-right hips and knee
+        arms = np.concatenate((actions[:, 14:17], actions[:, 11:14]), axis=1)  # flip left-right shoulder and elbow
+        return np.concatenate((abs, legs, arms), axis=1)
+
+    mirror_obs = humanoid_mirror_obs(observes)
+    mirror_actions = policy.sample(mirror_obs)
+    return humanoid_mirror_actions(mirror_actions)
+
+
 def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
          policy_logvar, weights_path, init_episode, experiment_name, resume, augment=False):
     """ Main training loop
@@ -332,7 +367,7 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
         init_episode = int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
 
     env, obs_dim, act_dim = init_gym(env_name)
-   # obs_dim = 45
+    obs_dim = 45
     # obs_dim += 1  # add 1 to obs dimension for time step feature (see run_episode())
 
     # env = wrappers.Monitor(env, aigym_path, force=True)
@@ -358,7 +393,8 @@ def main(env_name, num_episodes, gamma, lam, kl_targ, batch_size,hid1_mult,
         observes, actions, advantages, disc_sum_rew = build_train_set(trajectories)
         # add various stats to training log:
         log_batch_stats(observes, actions, advantages, disc_sum_rew, logger, episode)
-        policy.update(observes, actions, advantages, logger)  # update policy
+        sym_actions = calc_sym_actions(policy, observes, actions)
+        policy.update(observes, actions, sym_actions, advantages, logger)  # update policy
         val_func.fit(observes, disc_sum_rew, logger)  # update value function
         logger.write(display=True)  # write logger results to file and stdout
         if killer.kill_now:
