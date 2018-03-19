@@ -1,5 +1,5 @@
 #!/bin/sh
-sudo apt-get update;
+sudo apt-get update;#passwordis
 sudo apt-get upgrade -y;
 sudo apt-get install -y cmake ffmpeg pkg-config qtbase5-dev libqt5opengl5-dev libassimp-dev libpython3.5-dev libboost-python-dev libtinyxml-dev;
 git clone https://github.com/openai/roboschool.git ~/roboschool;
